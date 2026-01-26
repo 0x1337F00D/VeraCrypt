@@ -1,0 +1,4 @@
+## 2025-05-27 - Off-by-one Buffer Overflow in XML Parser
+**Vulnerability:** Off-by-one stack buffer overflow in `XmlGetAttributeText` and `XmlGetNodeText` functions in `src/Common/Xml.c`. The condition `l > bufferSize` allowed a string of length `bufferSize` to be copied, but the subsequent null termination `buffer[l] = 0` wrote past the end of the buffer.
+**Learning:** Standard C string handling requires careful attention to buffer sizes including the null terminator. Conditions like `length > size` are often insufficient; `length >= size` is required if the buffer must contain the null terminator.
+**Prevention:** Use safer string functions (like `StringCchCopy` family on Windows, or `snprintf` everywhere) or ensure strict bounds checking that accounts for null terminators. Always verify boundary conditions with test cases.
