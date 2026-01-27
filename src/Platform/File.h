@@ -45,7 +45,8 @@ namespace VeraCrypt
 			// Bitmap
 			FlagsNone = 0,
 			PreserveTimestamps = 1 << 0,
-			DisableWriteCaching = 1 << 1
+			DisableWriteCaching = 1 << 1,
+			OpenDirect = 1 << 2
 		};
 
 #ifdef TC_WINDOWS
@@ -93,6 +94,10 @@ namespace VeraCrypt
 
 	protected:
 		void ValidateState () const;
+
+#ifndef TC_WINDOWS
+		uint64 PerformAlignedIO (const BufferPtr &buffer, uint64 position, bool write) const;
+#endif
 
 		static const size_t OptimalReadSize = 256 * 1024;
 		static const size_t OptimalWriteSize = 256 * 1024;
