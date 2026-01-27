@@ -54,6 +54,13 @@ namespace VeraCrypt
 	const uint8 EMVCard::VISA_AID[7]										= {0xA0, 0x00, 0x00, 0x00, 0x03, 0x10, 0x10};
 	const map<EMVCardType, vector<uint8>> EMVCard::SUPPORTED_AIDS		= InitializeSupportedAIDs();
 
+	const uint16 EMV_PDOL_TAG = 0x9F38;
+	const uint8 INS_GET_PROCESSING_OPTIONS = 0xA8;
+	const uint8 EMV_GPO_RESPONSE_FORMAT1_TAG = 0x80;
+	const uint8 EMV_GPO_RESPONSE_FORMAT2_TAG = 0x77;
+	const uint8 EMV_AIP_TAG = 0x82;
+	const uint8 EMV_AFL_TAG = 0x94;
+
 	EMVCard::EMVCard() : SCard(), m_lastPANDigits(L"")
 	{
 	}
@@ -128,6 +135,105 @@ namespace VeraCrypt
 		m_issuerCert.clear();
 		m_cplcData.clear();
 		m_lastPANDigits.clear();
+	}
+
+	vector<EMVCard::EmvAflEntry> EMVCard::ProcessGPO(shared_ptr<TLVNode> fciNode)
+	{
+		vector<EmvAflEntry> aflEntries;
+		CommandAPDU command;
+		ResponseAPDU response;
+		vector<uint8> pdolData;
+		vector<uint8> gpoData;
+		shared_ptr<TLVNode> pdolNode = TLVParser::TLV_Find(fciNode, EMV_PDOL_TAG);
+		size_t pdolLen = 0;
+
+		if (pdolNode && pdolNode->Value->size() > 0)
+		{
+			size_t index = 0;
+			vector<uint8>& val = *pdolNode->Value;
+			while (index < val.size())
+			{
+				uint8 tag = val[index++];
+				if ((tag & 0x1F) == 0x1F && index < val.size())
+					index++; // skip second byte of tag
+
+				if (index < val.size())
+				{
+					uint8 len = val[index++];
+					pdolLen += len;
+				}
+			}
+		}
+
+		gpoData.push_back(0x83);
+		gpoData.push_back((uint8)pdolLen);
+		if (pdolLen > 0)
+		{
+			gpoData.insert(gpoData.end(), pdolLen, 0);
+		}
+
+		command = CommandAPDU(0x80, INS_GET_PROCESSING_OPTIONS, 0x00, 0x00, gpoData, SCardReader::shortAPDUMaxTransSize);
+		m_reader->ApduProcessData(command, response);
+
+		if (response.getSW() == SW_NO_ERROR && response.getData().size() > 0)
+		{
+			vector<uint8> rData = response.getData();
+			shared_ptr<TLVNode> gpoRoot = TLVParser::TLV_Parse(rData.data(), rData.size());
+
+			if (gpoRoot)
+			{
+				vector<uint8> aflData;
+				if (gpoRoot->Tag == EMV_GPO_RESPONSE_FORMAT1_TAG)
+				{
+					if (gpoRoot->Value->size() >= 2)
+					{
+						// Skip first 2 bytes (AIP)
+						aflData.assign(gpoRoot->Value->begin() + 2, gpoRoot->Value->end());
+					}
+				}
+				else if (gpoRoot->Tag == EMV_GPO_RESPONSE_FORMAT2_TAG)
+				{
+					shared_ptr<TLVNode> aflNode = TLVParser::TLV_Find(gpoRoot, EMV_AFL_TAG);
+					if (aflNode)
+						aflData = *aflNode->Value;
+				}
+
+				size_t idx = 0;
+				while (idx + 3 < aflData.size())
+				{
+					EmvAflEntry entry;
+					entry.sfi = aflData[idx] >> 3;
+					entry.startRec = aflData[idx+1];
+					entry.endRec = aflData[idx+2];
+					aflEntries.push_back(entry);
+					idx += 4;
+				}
+			}
+		}
+
+		return aflEntries;
+	}
+
+	vector<pair<uint8, uint8>> EMVCard::GetRecordsToRead(const vector<EmvAflEntry>& aflEntries)
+	{
+		vector<pair<uint8, uint8>> recordsToRead;
+		if (aflEntries.size() > 0)
+		{
+			for (const auto& entry : aflEntries)
+			{
+				for (uint8 rec = entry.startRec; rec <= entry.endRec; rec++)
+					recordsToRead.push_back(make_pair(entry.sfi, rec));
+			}
+		}
+		else
+		{
+			for (uint8 sfi = 1; sfi < 32; sfi++)
+			{
+				for (uint8 rec = 1; rec < 17; rec++)
+					recordsToRead.push_back(make_pair(sfi, rec));
+			}
+		}
+		return recordsToRead;
 	}
 
 	vector<uint8> EMVCard::GetCardAID(bool forceContactless)
@@ -372,40 +478,54 @@ namespace VeraCrypt
 					{
 						aidSelected = true;
 
-						// TODO: Send GET PROCESSING OPTIONS to get the AIL and AFL,
-						//		 which will then be used to get the actual start and end of sfi and rec.
-						for (uint8 sfi = 1; sfi < 32 && (!iccFound || !issuerFound); sfi++)
+						vector<pair<uint8, uint8>> recordsToRead;
+						vector<EmvAflEntry> aflEntries;
+
+						try
 						{
-							for (uint8 rec = 1; rec < 17 && (!iccFound || !issuerFound); rec++)
+							responseData = response.getData();
+							shared_ptr<TLVNode> fciNode = TLVParser::TLV_Parse(responseData.data(), responseData.size());
+							aflEntries = ProcessGPO(fciNode);
+						}
+						catch (...) { }
+
+						recordsToRead = GetRecordsToRead(aflEntries);
+
+						for (const auto& recordInfo : recordsToRead)
+						{
+							if (iccFound && issuerFound)
+								break;
+
+							uint8 sfi = recordInfo.first;
+							uint8 rec = recordInfo.second;
+
+							command = CommandAPDU(CLA_ISO7816, INS_READ_RECORD, rec, (sfi << 3) | 4, SCardReader::shortAPDUMaxTransSize);
+							m_reader->ApduProcessData(command, response);
+							if (response.getSW() == SW_NO_ERROR && response.getData().size() > 0)
 							{
-								command = CommandAPDU(CLA_ISO7816, INS_READ_RECORD, rec, (sfi << 3) | 4, SCardReader::shortAPDUMaxTransSize);
-								m_reader->ApduProcessData(command, response);
-								if (response.getSW() == SW_NO_ERROR && response.getData().size() > 0)
+								responseData = response.getData();
+
+								try
 								{
-									responseData = response.getData();
+									rootNode = TLVParser::TLV_Parse(responseData.data(), responseData.size());
+								}
+								catch(TLVException)
+								{
+									continue;
+								}
 
-									try
-									{
-										rootNode = TLVParser::TLV_Parse(responseData.data(), responseData.size());
-									}
-									catch(TLVException)
-									{
-										continue;
-									}
+								iccPublicKeyCertNode = TLVParser::TLV_Find(rootNode, EMV_ICC_PK_CERT_TAG);
+								if (iccPublicKeyCertNode && iccPublicKeyCertNode->Value->size() > 0)
+								{
+									iccFound = true;
+									iccCert = *iccPublicKeyCertNode->Value.get();
+								}
 
-									iccPublicKeyCertNode = TLVParser::TLV_Find(rootNode, EMV_ICC_PK_CERT_TAG);
-									if (iccPublicKeyCertNode && iccPublicKeyCertNode->Value->size() > 0)
-									{
-										iccFound = true;
-										iccCert = *iccPublicKeyCertNode->Value.get();
-									}
-
-									issuerPublicKeyCertNode = TLVParser::TLV_Find(rootNode, EMV_ISS_PK_CERT_TAG);
-									if (issuerPublicKeyCertNode && issuerPublicKeyCertNode->Value->size() > 0)
-									{
-										issuerFound = true;
-										issuerCert = *issuerPublicKeyCertNode->Value.get();
-									}
+								issuerPublicKeyCertNode = TLVParser::TLV_Find(rootNode, EMV_ISS_PK_CERT_TAG);
+								if (issuerPublicKeyCertNode && issuerPublicKeyCertNode->Value->size() > 0)
+								{
+									issuerFound = true;
+									issuerCert = *issuerPublicKeyCertNode->Value.get();
 								}
 							}
 						}
@@ -472,36 +592,50 @@ namespace VeraCrypt
 				{
 					aidSelected = true;
 
-					// TODO: Send GET PROCESSING OPTIONS to get the AIL and AFL,
-					//		 which will then be used to get the actual start and end of sfi and rec.
-					for (uint8 sfi = 1; sfi < 32 && !panFound; sfi++)
+					vector<pair<uint8, uint8>> recordsToRead;
+					vector<EmvAflEntry> aflEntries;
+
+					try
 					{
-						for (uint8 rec = 1; rec < 17 && !panFound; rec++)
+						responseData = response.getData();
+						shared_ptr<TLVNode> fciNode = TLVParser::TLV_Parse(responseData.data(), responseData.size());
+						aflEntries = ProcessGPO(fciNode);
+					}
+					catch (...) { }
+
+					recordsToRead = GetRecordsToRead(aflEntries);
+
+					for (const auto& recordInfo : recordsToRead)
+					{
+						if (panFound)
+							break;
+
+						uint8 sfi = recordInfo.first;
+						uint8 rec = recordInfo.second;
+
+						command = CommandAPDU(CLA_ISO7816, INS_READ_RECORD, rec, (sfi << 3) | 4, SCardReader::shortAPDUMaxTransSize);
+						m_reader->ApduProcessData(command, response);
+						if (response.getSW() == SW_NO_ERROR && response.getData().size() > 0)
 						{
-							command = CommandAPDU(CLA_ISO7816, INS_READ_RECORD, rec, (sfi << 3) | 4, SCardReader::shortAPDUMaxTransSize);
-							m_reader->ApduProcessData(command, response);
-							if (response.getSW() == SW_NO_ERROR && response.getData().size() > 0)
+							responseData = response.getData();
+
+							try
 							{
-								responseData = response.getData();
+								rootNode = TLVParser::TLV_Parse(responseData.data(), responseData.size());
+							}
+							catch(TLVException)
+							{
+								continue;
+							}
 
-								try
-								{
-									rootNode = TLVParser::TLV_Parse(responseData.data(), responseData.size());
-								}
-								catch(TLVException)
-								{
-									continue;
-								}
-
-								panNode = TLVParser::TLV_Find(rootNode, EMV_PAN_TAG);
-								if (panNode && panNode->Value->size() >= 8)
-								{
-									panFound = true;
-									panData = *panNode->Value.get();
-									panData = vector<uint8>(panData.rbegin(), panData.rbegin() + 2); // only interested in last digits
-									std::swap(panData[0], panData[1]);
-									lastPANDigits = ArrayToHexWideString(panData.data(), (int) panData.size());
-								}
+							panNode = TLVParser::TLV_Find(rootNode, EMV_PAN_TAG);
+							if (panNode && panNode->Value->size() >= 8)
+							{
+								panFound = true;
+								panData = *panNode->Value.get();
+								panData = vector<uint8>(panData.rbegin(), panData.rbegin() + 2); // only interested in last digits
+								std::swap(panData[0], panData[1]);
+								lastPANDigits = ArrayToHexWideString(panData.data(), (int) panData.size());
 							}
 						}
 					}
