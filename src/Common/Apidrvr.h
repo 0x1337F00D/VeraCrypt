@@ -129,6 +129,10 @@
 
 #define VC_IOCTL_ENCRYPTION_QUEUE_PARAMS				TC_IOCTL (43)
 
+// result of IOCTL_DISK_GET_PARTITION_INFO_EX
+// IN OUT - DISK_PARTITION_INFO_STRUCT_EX
+#define TC_IOCTL_GET_DRIVE_PARTITION_INFO_EX			TC_IOCTL (44)
+
 // Undocumented IOCTL sent by Windows 10 when handling EFS data on volumes
 #define IOCTL_UNKNOWN_WINDOWS10_EFS_ACCESS				0x455610D8
 
@@ -231,6 +235,14 @@ typedef struct
 	WCHAR symLinkName[TC_MAX_PATH];
 	WCHAR targetName[TC_MAX_PATH];
 } RESOLVE_SYMLINK_STRUCT;
+
+typedef struct
+{
+	WCHAR deviceName[TC_MAX_PATH];
+	PARTITION_INFORMATION_EX partInfo;
+	BOOL IsDynamic;
+}
+DISK_PARTITION_INFO_STRUCT_EX;
 
 typedef struct
 {

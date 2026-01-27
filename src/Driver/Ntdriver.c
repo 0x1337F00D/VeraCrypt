@@ -2466,6 +2466,67 @@ NTSTATUS ProcessMainDeviceControlIrp (PDEVICE_OBJECT DeviceObject, PEXTENSION Ex
 		}
 		break;
 
+	case TC_IOCTL_GET_DRIVE_PARTITION_INFO_EX:
+		if (ValidateIOBufferSize (Irp, sizeof (DISK_PARTITION_INFO_STRUCT_EX), ValidateInputOutput))
+		{
+			DISK_PARTITION_INFO_STRUCT_EX *info = (DISK_PARTITION_INFO_STRUCT_EX *) Irp->AssociatedIrp.SystemBuffer;
+			{
+				PARTITION_INFORMATION_EX pi;
+				NTSTATUS ntStatusLocal;
+
+				EnsureNullTerminatedString (info->deviceName, sizeof (info->deviceName));
+
+				ntStatusLocal = TCDeviceIoControl (info->deviceName, IOCTL_DISK_GET_PARTITION_INFO_EX, NULL, 0, &pi, sizeof (pi));
+				if (NT_SUCCESS(ntStatusLocal))
+				{
+					memcpy (&info->partInfo, &pi, sizeof (pi));
+				}
+				else
+				{
+					PARTITION_INFORMATION pi_legacy;
+					ntStatusLocal = TCDeviceIoControl (info->deviceName, IOCTL_DISK_GET_PARTITION_INFO, NULL, 0, &pi_legacy, sizeof (pi_legacy));
+					if (NT_SUCCESS(ntStatusLocal))
+					{
+						memset (&info->partInfo, 0, sizeof (info->partInfo));
+						info->partInfo.PartitionStyle = PARTITION_STYLE_MBR;
+						info->partInfo.StartingOffset = pi_legacy.StartingOffset;
+						info->partInfo.PartitionLength = pi_legacy.PartitionLength;
+						info->partInfo.PartitionNumber = pi_legacy.PartitionNumber;
+						info->partInfo.RewritePartition = pi_legacy.RewritePartition;
+						info->partInfo.Mbr.PartitionType = pi_legacy.PartitionType;
+						info->partInfo.Mbr.BootIndicator = pi_legacy.BootIndicator;
+						info->partInfo.Mbr.RecognizedPartition = pi_legacy.RecognizedPartition;
+						info->partInfo.Mbr.HiddenSectors = pi_legacy.HiddenSectors;
+					}
+				}
+
+				if (!NT_SUCCESS (ntStatusLocal))
+				{
+					GET_LENGTH_INFORMATION lengthInfo;
+					ntStatusLocal = TCDeviceIoControl (info->deviceName, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &lengthInfo, sizeof (lengthInfo));
+
+					if (NT_SUCCESS (ntStatusLocal))
+					{
+						memset (&info->partInfo, 0, sizeof (info->partInfo));
+						info->partInfo.PartitionLength = lengthInfo.Length;
+					}
+				}
+
+				info->IsDynamic = FALSE;
+
+				if (NT_SUCCESS (ntStatusLocal))
+				{
+#					define IOCTL_VOLUME_IS_DYNAMIC CTL_CODE(IOCTL_VOLUME_BASE, 18, METHOD_BUFFERED, FILE_ANY_ACCESS)
+					if (!NT_SUCCESS (TCDeviceIoControl (info->deviceName, IOCTL_VOLUME_IS_DYNAMIC, NULL, 0, &info->IsDynamic, sizeof (info->IsDynamic))))
+						info->IsDynamic = FALSE;
+				}
+
+				Irp->IoStatus.Information = sizeof (DISK_PARTITION_INFO_STRUCT_EX);
+				Irp->IoStatus.Status = ntStatusLocal;
+			}
+		}
+		break;
+
 	case TC_IOCTL_GET_DRIVE_GEOMETRY:
 		if (ValidateIOBufferSize (Irp, sizeof (DISK_GEOMETRY_STRUCT), ValidateInputOutput))
 		{
@@ -3220,6 +3281,7 @@ LPWSTR TCTranslateCode (ULONG ulCode)
 		TC_CASE_RET_NAME (TC_IOCTL_GET_DEVICE_REFCOUNT);
 		TC_CASE_RET_NAME (TC_IOCTL_GET_DRIVE_GEOMETRY);
 		TC_CASE_RET_NAME (TC_IOCTL_GET_DRIVE_PARTITION_INFO);
+		TC_CASE_RET_NAME (TC_IOCTL_GET_DRIVE_PARTITION_INFO_EX);
 		TC_CASE_RET_NAME (TC_IOCTL_GET_DRIVER_VERSION);
 		TC_CASE_RET_NAME (TC_IOCTL_GET_MOUNTED_VOLUMES);
 		TC_CASE_RET_NAME (TC_IOCTL_GET_PASSWORD_CACHE_STATUS);
