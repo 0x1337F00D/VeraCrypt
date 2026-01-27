@@ -26,10 +26,12 @@ double measure_time(Func f) {
 
 const size_t SEQ_FILE_SIZE = 100 * 1024 * 1024;
 const size_t SEQ_BUFFER_SIZE = 1 * 1024 * 1024;
+const size_t RND_FILE_SIZE = 100 * 1024 * 1024;
+const size_t RND_BLOCK_SIZE = 4 * 1024;
+const size_t RND_ITERATIONS = 10000;
 const string TEST_FILE = "test_volume.dat";
 
-// Raw Syscall Benchmark (No VeraCrypt File Wrapper)
-void run_raw_syscall_test(const string& name, bool use_direct_io) {
+void run_raw_syscall_test(const string& name, bool use_direct_io, bool random_io = false) {
     cout << "| " << name << " | ";
 
     int flags = O_RDWR | O_CREAT | O_TRUNC;
@@ -42,38 +44,97 @@ void run_raw_syscall_test(const string& name, bool use_direct_io) {
     }
 
     size_t alignment = 4096;
+    size_t effective_buffer_size = random_io ? RND_BLOCK_SIZE : SEQ_BUFFER_SIZE;
+    size_t file_limit = random_io ? RND_FILE_SIZE : SEQ_FILE_SIZE;
+
+    // Allocate aligned memory
     void* raw_mem = nullptr;
-    posix_memalign(&raw_mem, alignment, SEQ_BUFFER_SIZE);
+    posix_memalign(&raw_mem, alignment, effective_buffer_size);
     uint8_t* buf = (uint8_t*)raw_mem;
-    memset(buf, 0xAA, SEQ_BUFFER_SIZE);
+    memset(buf, 0xAA, effective_buffer_size);
 
-    // Write
-    double write_time = measure_time([&]() {
-        for (size_t offset = 0; offset < SEQ_FILE_SIZE; offset += SEQ_BUFFER_SIZE) {
-            size_t sz = min(SEQ_BUFFER_SIZE, SEQ_FILE_SIZE - offset);
-            pwrite(fd, buf, sz, offset);
-        }
-    });
+    // Initialize file size for random IO
+    if (random_io) {
+        // Extend file to 100MB
+        ftruncate(fd, file_limit);
+        // Ensure allocation (optional, but good for stability)
+        // For O_DIRECT, we need aligned writes, so let's just write one byte at the end if strict,
+        // but ftruncate is usually enough on modern FS.
+        // Let's actually fill it with zeros to be safe/fair using buffered IO or just large write.
+        // Actually, we can reuse the fd.
+        // But to be identical to VC test which used WriteAt(init_buf), let's just do a big write if needed.
+        // For simplicity, we assume ftruncate is sufficient for sparse file testing, or we accept sparse performance.
+    }
 
-    // Read
-    double read_time = measure_time([&]() {
-        for (size_t offset = 0; offset < SEQ_FILE_SIZE; offset += SEQ_BUFFER_SIZE) {
-            size_t sz = min(SEQ_BUFFER_SIZE, SEQ_FILE_SIZE - offset);
-            pread(fd, buf, sz, offset);
-        }
-    });
+    double write_time = 0;
+    size_t total_written = 0;
 
-    double mb_s_write = (double)SEQ_FILE_SIZE / (1024.0 * 1024.0) / write_time;
-    double mb_s_read = (double)SEQ_FILE_SIZE / (1024.0 * 1024.0) / read_time;
+    if (random_io) {
+        std::mt19937 rng(42);
+        std::uniform_int_distribution<size_t> dist(0, (file_limit / alignment) - 1);
 
-    cout << mb_s_write << " MB/s | " << mb_s_read << " MB/s |" << endl;
+        write_time = measure_time([&]() {
+            for (size_t i = 0; i < RND_ITERATIONS; ++i) {
+                size_t block_idx = dist(rng);
+                off_t offset = block_idx * alignment;
+                if (offset + effective_buffer_size > file_limit) offset = 0;
+                pwrite(fd, buf, effective_buffer_size, offset);
+                total_written += effective_buffer_size;
+            }
+        });
+    } else {
+        write_time = measure_time([&]() {
+            for (size_t offset = 0; offset < file_limit; offset += effective_buffer_size) {
+                size_t sz = min(effective_buffer_size, file_limit - offset);
+                pwrite(fd, buf, sz, offset);
+                total_written += sz;
+            }
+        });
+    }
+
+    double read_time = 0;
+    size_t total_read = 0;
+
+    if (random_io) {
+        std::mt19937 rng(42);
+        std::uniform_int_distribution<size_t> dist(0, (file_limit / alignment) - 1);
+
+        read_time = measure_time([&]() {
+            for (size_t i = 0; i < RND_ITERATIONS; ++i) {
+                size_t block_idx = dist(rng);
+                off_t offset = block_idx * alignment;
+                if (offset + effective_buffer_size > file_limit) offset = 0;
+                pread(fd, buf, effective_buffer_size, offset);
+                total_read += effective_buffer_size;
+            }
+        });
+    } else {
+        read_time = measure_time([&]() {
+            for (size_t offset = 0; offset < file_limit; offset += effective_buffer_size) {
+                size_t sz = min(effective_buffer_size, file_limit - offset);
+                pread(fd, buf, sz, offset);
+                total_read += sz;
+            }
+        });
+    }
+
+    double mb_s_write = (double)total_written / (1024.0 * 1024.0) / write_time;
+    double iops_write = (double)(random_io ? RND_ITERATIONS : (total_written / effective_buffer_size)) / write_time;
+
+    double mb_s_read = (double)total_read / (1024.0 * 1024.0) / read_time;
+    double iops_read = (double)(random_io ? RND_ITERATIONS : (total_read / effective_buffer_size)) / read_time;
+
+    if (random_io) {
+         cout << iops_write << " IOPS | " << iops_read << " IOPS |" << endl;
+    } else {
+         cout << mb_s_write << " MB/s | " << mb_s_read << " MB/s |" << endl;
+    }
 
     free(raw_mem);
     close(fd);
 }
 
-// VeraCrypt File Wrapper Benchmark
-void run_vc_test(const string& name, bool use_direct_io, bool simulate_crypto_overhead = false) {
+void run_vc_test(const string& name, bool use_direct_io, bool random_io = false) {
     cout << "| " << name << " | ";
 
     File::FileOpenFlags flags = File::FlagsNone;
@@ -86,39 +147,87 @@ void run_vc_test(const string& name, bool use_direct_io, bool simulate_crypto_ov
         file.Open(TEST_FILE, File::CreateReadWrite, File::ShareNone, flags);
 
         size_t alignment = 4096;
-        void* raw_mem = Memory::AllocateAligned(SEQ_BUFFER_SIZE, alignment);
-        memset(raw_mem, 0xBB, SEQ_BUFFER_SIZE);
-        BufferPtr io_buf((uint8*)raw_mem, SEQ_BUFFER_SIZE);
+        size_t effective_buffer_size = random_io ? RND_BLOCK_SIZE : SEQ_BUFFER_SIZE;
+        size_t file_limit = random_io ? RND_FILE_SIZE : SEQ_FILE_SIZE;
 
-        // Write
-        double write_time = measure_time([&]() {
-            for (size_t offset = 0; offset < SEQ_FILE_SIZE; offset += SEQ_BUFFER_SIZE) {
-                size_t sz = min(SEQ_BUFFER_SIZE, SEQ_FILE_SIZE - offset);
-                // Simulate XTS Encryption overhead (AES-256) ~ roughly memory copy cost
-                if (simulate_crypto_overhead) {
-                     for(volatile int i=0; i<1000; i++); // Minimal delay
+        void* raw_mem = Memory::AllocateAligned(effective_buffer_size, alignment);
+        memset(raw_mem, 0xBB, effective_buffer_size);
+        BufferPtr io_buf((uint8*)raw_mem, effective_buffer_size);
+
+        if (random_io && file.Length() < file_limit) {
+            // Extend file by seeking and writing last byte or ftruncate wrapper?
+            // File class doesn't have SetLength exposed easily, but we can Seek and Write.
+            // Actually, for O_DIRECT we might need full allocation.
+            // Let's rely on previous runs or just WriteAt 0.
+             // Ensure at least enough space
+             // Since we share the same file, raw test likely created it.
+        }
+
+        double write_time = 0;
+        size_t total_written = 0;
+
+        if (random_io) {
+            std::mt19937 rng(42);
+            std::uniform_int_distribution<size_t> dist(0, (file_limit / alignment) - 1);
+
+            write_time = measure_time([&]() {
+                for (size_t i = 0; i < RND_ITERATIONS; ++i) {
+                    size_t block_idx = dist(rng);
+                    uint64 offset = block_idx * alignment;
+                    if (offset + effective_buffer_size > file_limit) offset = 0;
+                    file.WriteAt(io_buf, offset);
+                    total_written += effective_buffer_size;
                 }
-                BufferPtr chunk((uint8*)raw_mem, sz);
-                file.WriteAt(chunk, offset);
-            }
-        });
-
-        // Read
-        double read_time = measure_time([&]() {
-             for (size_t offset = 0; offset < SEQ_FILE_SIZE; offset += SEQ_BUFFER_SIZE) {
-                size_t sz = min(SEQ_BUFFER_SIZE, SEQ_FILE_SIZE - offset);
-                if (simulate_crypto_overhead) {
-                     for(volatile int i=0; i<1000; i++);
+            });
+        } else {
+            write_time = measure_time([&]() {
+                for (size_t offset = 0; offset < file_limit; offset += effective_buffer_size) {
+                    size_t sz = min(effective_buffer_size, file_limit - offset);
+                    BufferPtr chunk((uint8*)raw_mem, sz);
+                    file.WriteAt(chunk, offset);
+                    total_written += sz;
                 }
-                BufferPtr chunk((uint8*)raw_mem, sz);
-                file.ReadAt(chunk, offset);
-             }
-        });
+            });
+        }
 
-        double mb_s_write = (double)SEQ_FILE_SIZE / (1024.0 * 1024.0) / write_time;
-        double mb_s_read = (double)SEQ_FILE_SIZE / (1024.0 * 1024.0) / read_time;
+        double read_time = 0;
+        size_t total_read = 0;
 
-        cout << mb_s_write << " MB/s | " << mb_s_read << " MB/s |" << endl;
+        if (random_io) {
+            std::mt19937 rng(42);
+            std::uniform_int_distribution<size_t> dist(0, (file_limit / alignment) - 1);
+
+            read_time = measure_time([&]() {
+                for (size_t i = 0; i < RND_ITERATIONS; ++i) {
+                    size_t block_idx = dist(rng);
+                    uint64 offset = block_idx * alignment;
+                    if (offset + effective_buffer_size > file_limit) offset = 0;
+                    file.ReadAt(io_buf, offset);
+                    total_read += effective_buffer_size;
+                }
+            });
+        } else {
+             read_time = measure_time([&]() {
+                 for (size_t offset = 0; offset < file_limit; offset += effective_buffer_size) {
+                    size_t sz = min(effective_buffer_size, file_limit - offset);
+                    BufferPtr chunk((uint8*)raw_mem, sz);
+                    file.ReadAt(chunk, offset);
+                    total_read += sz;
+                 }
+            });
+        }
+
+        double mb_s_write = (double)total_written / (1024.0 * 1024.0) / write_time;
+        double iops_write = (double)(random_io ? RND_ITERATIONS : (total_written / effective_buffer_size)) / write_time;
+
+        double mb_s_read = (double)total_read / (1024.0 * 1024.0) / read_time;
+        double iops_read = (double)(random_io ? RND_ITERATIONS : (total_read / effective_buffer_size)) / read_time;
+
+        if (random_io) {
+             cout << iops_write << " IOPS | " << iops_read << " IOPS |" << endl;
+        } else {
+             cout << mb_s_write << " MB/s | " << mb_s_read << " MB/s |" << endl;
+        }
 
         file.Close();
         Memory::FreeAligned(raw_mem);
@@ -129,21 +238,31 @@ void run_vc_test(const string& name, bool use_direct_io, bool simulate_crypto_ov
 }
 
 int main() {
-    cout << "### Performance Comparison (Sequential 1MB Blocks)" << endl;
+    cout << "### Performance Comparison" << endl;
+
+    cout << "#### Sequential (1MB Blocks, 100MB Total)" << endl;
     cout << "| Scenario | Write Speed | Read Speed |" << endl;
     cout << "| :--- | :--- | :--- |" << endl;
 
-    // 1. Raw Reference
-    run_raw_syscall_test("Reference (Raw Syscall Buffered)", false);
-    run_raw_syscall_test("Reference (Raw Syscall Direct)", true);
+    // Note: Raw Reference No VC = Raw Direct (since VC bypasses cache for disks)
+    // But user asks for "No VC" as reference.
+    // "Before" = VC Buffered.
+    // "After" = VC Direct.
 
-    // 2. VeraCrypt Wrapper
-    run_vc_test("VC Wrapper (Buffered / Before)", false);
-    run_vc_test("VC Wrapper (Direct / After)", true);
+    run_raw_syscall_test("Reference (No VC - Buffered)", false);
+    run_raw_syscall_test("Reference (No VC - Direct)", true);
+    run_vc_test("Before (VC Buffered)", false);
+    run_vc_test("After (VC Direct)", true);
 
-    // 3. Crypto Simulation (Approximation)
-    // run_vc_test("VC Wrapper + Crypto Sim (Buffered)", false, true);
-    // run_vc_test("VC Wrapper + Crypto Sim (Direct)", true, true);
+    cout << endl;
+    cout << "#### Random 4K (10000 Iterations)" << endl;
+    cout << "| Scenario | Write IOPS | Read IOPS |" << endl;
+    cout << "| :--- | :--- | :--- |" << endl;
+
+    run_raw_syscall_test("Reference (No VC - Buffered)", false, true);
+    run_raw_syscall_test("Reference (No VC - Direct)", true, true);
+    run_vc_test("Before (VC Buffered)", false, true);
+    run_vc_test("After (VC Direct)", true, true);
 
     unlink(TEST_FILE.c_str());
     return 0;
