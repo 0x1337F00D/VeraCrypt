@@ -32,7 +32,7 @@ const string TEST_FILE = "test_volume.dat";
 void run_raw_syscall_test(const string& name, bool use_direct_io) {
     cout << "| " << name << " | ";
 
-    int flags = O_RDWR | O_CREAT;
+    int flags = O_RDWR | O_CREAT | O_TRUNC;
     if (use_direct_io) flags |= O_DIRECT;
 
     int fd = open(TEST_FILE.c_str(), flags, 0666);
