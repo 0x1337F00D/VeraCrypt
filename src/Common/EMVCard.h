@@ -63,6 +63,9 @@ namespace VeraCrypt
 
 		void GetCardContent(vector<uint8>& iccCert, vector<uint8>& issuerCert, vector<uint8>& cplcData);
 		void GetCardPAN(wstring& lastPANDigits);
+
+	private:
+		bool GetProcessingOptions(const vector<uint8>& fciData, vector<uint8>& aip, vector<uint8>& afl);
 	};
 }
 
