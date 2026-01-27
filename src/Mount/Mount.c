@@ -5557,7 +5557,7 @@ ret:
 		bCacheInDriver = bCacheInDriverDefault;
 
 	if (status && CloseSecurityTokenSessionsAfterMount && !MultipleMountOperationInProgress)
-		SecurityToken::CloseAllSessions(); // TODO Use Token
+		SecurityToken::CloseAllSessions();
 
 	return status;
 }
@@ -6049,7 +6049,7 @@ static BOOL MountAllDevicesThreadCode (HWND hwndDlg, BOOL bPasswordPrompt)
 	}
 
 	if (status && CloseSecurityTokenSessionsAfterMount)
-		SecurityToken::CloseAllSessions();  // TODO Use Token
+		SecurityToken::CloseAllSessions();
 
 ret:
 	MultipleMountOperationInProgress = FALSE;
@@ -7763,7 +7763,7 @@ BOOL CALLBACK MainDialogProc (HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 				if (bWipeCacheOnAutoDismount)
 				{
 					DeviceIoControl (hDriver, TC_IOCTL_WIPE_PASSWORD_CACHE, NULL, 0, NULL, 0, &dwResult, NULL);
-					SecurityToken::CloseAllSessions();  // TODO Use Token
+					SecurityToken::CloseAllSessions();
 				}
 
 				DismountAll (hwndDlg, bForceAutoDismount, TRUE, UNMOUNT_MAX_AUTO_RETRIES, UNMOUNT_AUTO_RETRY_DELAY);
@@ -7802,7 +7802,7 @@ BOOL CALLBACK MainDialogProc (HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 			if (bWipeCacheOnAutoDismount)
 			{
 				DeviceIoControl (hDriver, TC_IOCTL_WIPE_PASSWORD_CACHE, NULL, 0, NULL, 0, &dwResult, NULL);
-				SecurityToken::CloseAllSessions();  // TODO Use Token
+				SecurityToken::CloseAllSessions();
 			}
 
 			DismountAll (hwndDlg, bForceAutoDismount, TRUE, UNMOUNT_MAX_AUTO_RETRIES, UNMOUNT_AUTO_RETRY_DELAY);
@@ -7859,7 +7859,7 @@ BOOL CALLBACK MainDialogProc (HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 							if (bWipeCacheOnAutoDismount)
 							{
 								DeviceIoControl (hDriver, TC_IOCTL_WIPE_PASSWORD_CACHE, NULL, 0, NULL, 0, &dwResult, NULL);
-								SecurityToken::CloseAllSessions();  // TODO Use Token
+								SecurityToken::CloseAllSessions();
 							}
 
 							DismountAll (hwndDlg, bForceAutoDismount, FALSE, UNMOUNT_MAX_AUTO_RETRIES, UNMOUNT_AUTO_RETRY_DELAY);
@@ -8760,7 +8760,7 @@ BOOL CALLBACK MainDialogProc (HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 				WaitCursor();
 				finally_do ({ NormalCursor(); });
 
-				SecurityToken::CloseAllSessions();  // TODO Use Token
+				SecurityToken::CloseAllSessions();
 			}
 
 			InfoBalloon (NULL, "ALL_TOKEN_SESSIONS_CLOSED", hwndDlg);
@@ -10646,7 +10646,7 @@ void DismountIdleVolumes ()
 							if (bWipeCacheOnAutoDismount)
 							{
 								DeviceIoControl (hDriver, TC_IOCTL_WIPE_PASSWORD_CACHE, NULL, 0, NULL, 0, &dwResult, NULL);
-								SecurityToken::CloseAllSessions();  // TODO Use Token
+								SecurityToken::CloseAllSessions();
 							}
 						}
 					}
@@ -10974,7 +10974,7 @@ BOOL MountFavoriteVolumes (HWND hwnd, BOOL systemFavorites, BOOL logOnMount, BOO
 	burn (&VolumePim, sizeof (VolumePim));
 
 	if (bRet && CloseSecurityTokenSessionsAfterMount)
-		SecurityToken::CloseAllSessions();  // TODO Use Token
+		SecurityToken::CloseAllSessions();
 
 	return bRet;
 }
@@ -11153,7 +11153,7 @@ static void HandleHotKey (HWND hwndDlg, WPARAM wParam)
 		break;
 
 	case HK_CLOSE_SECURITY_TOKEN_SESSIONS:
-		SecurityToken::CloseAllSessions();  // TODO Use Token
+		SecurityToken::CloseAllSessions();
 
 		InfoBalloon (NULL, "ALL_TOKEN_SESSIONS_CLOSED", hwndDlg);
 
