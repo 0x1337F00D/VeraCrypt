@@ -86,7 +86,11 @@ jobs:
         key: wxWidgets-${{ steps.cache-key.outputs.cache_key }}
 
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y wget tar libpcsclite-dev libfuse-dev yasm libgtk-3-dev libayatana-appindicator3-dev cmake debhelper
+      run: sudo apt-get update && sudo apt-get install -y wget tar libpcsclite-dev libfuse-dev yasm libgtk-3-dev libayatana-appindicator3-dev cmake debhelper cppcheck checksec
+
+    - name: Static Code Analysis
+      run: |
+        cppcheck --force --quiet --error-exitcode=1 src/
 
     - name: Download and extract wxWidgets to /tmp if build folders are missing
       if: steps.cache-wxbuildconsole.outputs.cache-hit != 'true' || steps.cache-wxbuildgui.outputs.cache-hit != 'true' || steps.cache-wxwidgets.outputs.cache-hit != 'true'
@@ -184,6 +188,18 @@ jobs:
           exit 1
         fi
         sudo veracrypt -d
+        sudo apt remove -y veracrypt-console
+
+    - name: Security Hardening Check
+      run: |
+        sudo apt install -y /tmp/VeraCrypt_Packaging/Console/Packaging/veracrypt-console-*.deb
+        checksec --file=$(which veracrypt) >> $GITHUB_STEP_SUMMARY
+
+    - name: Performance Benchmark
+      run: |
+        chmod +x .github/scripts/benchmark.sh
+        sudo .github/scripts/benchmark.sh
+        sudo veracrypt -d || true
         sudo apt remove -y veracrypt-console
 
     - name: Cleanup old caches
