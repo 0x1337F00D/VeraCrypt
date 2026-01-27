@@ -43,6 +43,7 @@
 #endif
 
 #include "Platform/File.h"
+#include "Platform/Finally.h"
 #include "Platform/Memory.h"
 #include "Platform/TextReader.h"
 
@@ -372,52 +373,46 @@ namespace VeraCrypt
 		void* rawBuf = Memory::AllocateAligned (alignedSize, memoryAlignment);
 		BufferPtr alignedBuf ((uint8*)rawBuf, alignedSize);
 
-		try
+		Finally finally ([&] { Memory::FreeAligned (rawBuf); });
+
+		if (write)
 		{
-			if (write)
-			{
-				ssize_t bytesRead = pread (FileHandle, alignedBuf, alignedSize, alignedStart);
-				throw_sys_sub_if (bytesRead == -1, wstring (Path));
+			ssize_t bytesRead = pread (FileHandle, alignedBuf, alignedSize, alignedStart);
+			throw_sys_sub_if (bytesRead == -1, wstring (Path));
 
-				if ((size_t)bytesRead < alignedSize)
-					memset (alignedBuf.Get() + bytesRead, 0, alignedSize - bytesRead);
+			if ((size_t)bytesRead < alignedSize)
+				memset (alignedBuf.Get() + bytesRead, 0, alignedSize - bytesRead);
 
-				memcpy(alignedBuf.Get() + bufferOffset, buffer.Get(), buffer.Size());
+			memcpy(alignedBuf.Get() + bufferOffset, buffer.Get(), buffer.Size());
 
-				ssize_t bytesWritten = pwrite (FileHandle, alignedBuf, alignedSize, alignedStart);
-				throw_sys_sub_if (bytesWritten == -1, wstring (Path));
+			// Note: This RMW operation is not atomic with respect to other processes/threads
+			// modifying the same sector. Ensure exclusive access or proper locking at higher levels.
+			ssize_t bytesWritten = pwrite (FileHandle, alignedBuf, alignedSize, alignedStart);
+			throw_sys_sub_if (bytesWritten == -1, wstring (Path));
 
-				if ((size_t)bytesWritten < alignedSize)
-					throw SystemException (SRC_POS, wstring (Path));
+			if ((size_t)bytesWritten < alignedSize)
+				throw SystemException (SRC_POS, wstring (Path));
 
-				Memory::FreeAligned (rawBuf);
-				return buffer.Size();
-			}
-			else
-			{
-				ssize_t bytesRead = pread (FileHandle, alignedBuf, alignedSize, alignedStart);
-				throw_sys_sub_if (bytesRead == -1, wstring (Path));
-
-				size_t copySize = buffer.Size();
-				if ((size_t)bytesRead < bufferOffset + copySize)
-				{
-					if ((size_t)bytesRead <= bufferOffset)
-						copySize = 0;
-					else
-						copySize = (size_t)bytesRead - bufferOffset;
-				}
-
-				if (copySize > 0)
-					memcpy(buffer.Get(), alignedBuf.Get() + bufferOffset, copySize);
-
-				Memory::FreeAligned (rawBuf);
-				return copySize;
-			}
+			return buffer.Size();
 		}
-		catch (...)
+		else
 		{
-			Memory::FreeAligned (rawBuf);
-			throw;
+			ssize_t bytesRead = pread (FileHandle, alignedBuf, alignedSize, alignedStart);
+			throw_sys_sub_if (bytesRead == -1, wstring (Path));
+
+			size_t copySize = buffer.Size();
+			if ((size_t)bytesRead < bufferOffset + copySize)
+			{
+				if ((size_t)bytesRead <= bufferOffset)
+					copySize = 0;
+				else
+					copySize = (size_t)bytesRead - bufferOffset;
+			}
+
+			if (copySize > 0)
+				memcpy(buffer.Get(), alignedBuf.Get() + bufferOffset, copySize);
+
+			return copySize;
 		}
 	}
 
@@ -501,6 +496,7 @@ namespace VeraCrypt
 
 			BufferPtr bufPtr (const_cast<uint8*>(buffer.Get()), buffer.Size());
 			uint64 bytesWritten = PerformAlignedIO (bufPtr, currentPos, true);
+			throw_sys_sub_if (bytesWritten != buffer.Size(), wstring (Path));
 
 			lseek (FileHandle, currentPos + bytesWritten, SEEK_SET);
 		}
@@ -520,7 +516,8 @@ namespace VeraCrypt
 		if (mFileOpenFlags & File::OpenDirect)
 		{
 			BufferPtr bufPtr (const_cast<uint8*>(buffer.Get()), buffer.Size());
-			PerformAlignedIO (bufPtr, position, true);
+			uint64 bytesWritten = PerformAlignedIO (bufPtr, position, true);
+			throw_sys_sub_if (bytesWritten != buffer.Size(), wstring (Path));
 		}
 		else
 		{
