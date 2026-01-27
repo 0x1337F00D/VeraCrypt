@@ -15,6 +15,7 @@
 
 #include "System.h"
 #include "Platform/Unix/Process.h"
+#include "Platform/Mutex.h"
 #include "Core/CoreBase.h"
 #include "Core/Unix/MountedFilesystem.h"
 
@@ -69,6 +70,14 @@ namespace VeraCrypt
 	private:
 		CoreUnix (const CoreUnix &);
 		CoreUnix &operator= (const CoreUnix &);
+
+		mutable string CachedUserEnvPATH;
+		struct PathCacheEntry {
+			string Original;
+			string Resolved;
+		};
+		mutable vector<PathCacheEntry> PathCache;
+		mutable Mutex PathCacheMutex;
 	};
 }
 
