@@ -344,29 +344,31 @@ namespace VeraCrypt
 
 	uint64 File::PerformAlignedIO (const BufferPtr &buffer, uint64 position, bool write) const
 	{
-		size_t alignment = 4096;
-		try
-		{
-			alignment = GetDeviceSectorSize();
-		}
-		catch (...) { }
+		// Optimize: Use cached or constant alignment if possible.
+		// For now, assume 4096 is safe for modern drives.
+		static const size_t deviceAlignment = 4096;
+		static const size_t memoryAlignment = 4096;
 
-		size_t memoryAlignment = 4096;
-		size_t deviceAlignment = alignment;
-
-		bool memoryAligned = ((uintptr_t)buffer.Get() % memoryAlignment) == 0;
-		bool sizeAligned = (buffer.Size() % deviceAlignment) == 0;
-		bool offsetAligned = (position % deviceAlignment) == 0;
-
-		if (memoryAligned && sizeAligned && offsetAligned)
+		// Fast Path: Check if everything is aligned
+		if ((((uintptr_t)buffer.Get() | buffer.Size() | position) & (deviceAlignment - 1)) == 0)
 		{
 			ssize_t bytes = write ? pwrite (FileHandle, buffer, buffer.Size(), position) : pread (FileHandle, buffer, buffer.Size(), position);
 			throw_sys_sub_if (bytes == -1, wstring (Path));
 			return bytes;
 		}
 
-		uint64 alignedStart = (position / deviceAlignment) * deviceAlignment;
-		uint64 alignedEnd = ((position + buffer.Size() + deviceAlignment - 1) / deviceAlignment) * deviceAlignment;
+		// Slow Path: Unaligned Access
+		size_t alignment = deviceAlignment;
+		try
+		{
+			// Fallback to querying device if strict checking is needed,
+			// but for this optimization, we stick to 4K to avoid syscall overhead.
+			// alignment = GetDeviceSectorSize();
+		}
+		catch (...) { }
+
+		uint64 alignedStart = (position / alignment) * alignment;
+		uint64 alignedEnd = ((position + buffer.Size() + alignment - 1) / alignment) * alignment;
 		size_t alignedSize = (size_t)(alignedEnd - alignedStart);
 		size_t bufferOffset = (size_t)(position - alignedStart);
 
