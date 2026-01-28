@@ -90,7 +90,7 @@ jobs:
 
     - name: Static Code Analysis
       run: |
-        cppcheck --force --quiet --error-exitcode=1 src/
+        cppcheck --force --quiet --error-exitcode=1 -DDESTROYGLOBALS="" src/
 
     - name: Download and extract wxWidgets to /tmp if build folders are missing
       if: steps.cache-wxbuildconsole.outputs.cache-hit != 'true' || steps.cache-wxbuildgui.outputs.cache-hit != 'true' || steps.cache-wxwidgets.outputs.cache-hit != 'true'
