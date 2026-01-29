@@ -86,7 +86,7 @@ jobs:
         key: wxWidgets-${{ steps.cache-key.outputs.cache_key }}
 
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y wget tar libpcsclite-dev libfuse-dev yasm libgtk-3-dev libayatana-appindicator3-dev cmake debhelper cppcheck checksec
+      run: sudo apt-get update && sudo apt-get install -y wget tar libpcsclite-dev libfuse-dev yasm libgtk-3-dev libayatana-appindicator3-dev cmake debhelper cppcheck checksec libwxgtk3.0-gtk3-dev
 
     - name: Static Code Analysis
       run: |
@@ -102,13 +102,6 @@ jobs:
           -DDEFINE_EVENT_TYPE\(x\)= \
           -DAS2\(x,y\)= \
           src/
-
-    - name: Download and extract wxWidgets to /tmp if build folders are missing
-      if: steps.cache-wxbuildconsole.outputs.cache-hit != 'true' || steps.cache-wxbuildgui.outputs.cache-hit != 'true' || steps.cache-wxwidgets.outputs.cache-hit != 'true'
-      run: |
-        wget https://github.com/wxWidgets/wxWidgets/releases/download/v${{ env.WXWIDGETS_VERSION }}/wxWidgets-${{ env.WXWIDGETS_VERSION }}.tar.bz2 -O /tmp/wxWidgets-${{ env.WXWIDGETS_VERSION }}.tar.bz2
-        mkdir -p /tmp/wxWidgets-${{ env.WXWIDGETS_VERSION }}
-        tar -xjf /tmp/wxWidgets-${{ env.WXWIDGETS_VERSION }}.tar.bz2 -C /tmp/wxWidgets-${{ env.WXWIDGETS_VERSION }} --strip-components=1
 
     - name: Build VeraCrypt Console Binary
       run: |
