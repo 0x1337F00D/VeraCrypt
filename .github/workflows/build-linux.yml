@@ -110,28 +110,14 @@ jobs:
         mkdir -p /tmp/wxWidgets-${{ env.WXWIDGETS_VERSION }}
         tar -xjf /tmp/wxWidgets-${{ env.WXWIDGETS_VERSION }}.tar.bz2 -C /tmp/wxWidgets-${{ env.WXWIDGETS_VERSION }} --strip-components=1
 
-    - name: Build VeraCrypt .deb packages
+    - name: Build VeraCrypt Console Binary
       run: |
-        chmod +x src/Build/build_cmake_deb.sh
-        src/Build/build_cmake_deb.sh WXSTATIC INDICATOR
-
-    - name: Upload GUI .deb packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: veracrypt-gui-debs
-        path: /tmp/VeraCrypt_Packaging/GUI/Packaging/veracrypt-*.*
-
-    - name: Upload Console .deb packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: veracrypt-console-debs
-        path: /tmp/VeraCrypt_Packaging/Console/Packaging/veracrypt-console-*.*
+        cd src
+        make NOGUI=1
 
     - name: Security Hardening Check
       run: |
-        sudo apt install -y /tmp/VeraCrypt_Packaging/Console/Packaging/veracrypt-console-*.deb
-        checksec --file=$(which veracrypt) >> $GITHUB_STEP_SUMMARY
-        sudo apt remove -y veracrypt-console
+        checksec --file=src/Main/veracrypt >> $GITHUB_STEP_SUMMARY
 
     - name: Cleanup old caches
       uses: actions/github-script@v6
