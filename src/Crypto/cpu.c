@@ -356,7 +356,7 @@ void DetectX86Features()
 #if !defined (_UEFI) && ((defined(__AES__) && defined(__PCLMUL__)) || defined(__INTEL_COMPILER) || CRYPTOPP_BOOL_AESNI_INTRINSICS_AVAILABLE)
 	// Hypervisor = bit 31 of ECX of CPUID leaf 0x1
 	// reference: http://artemonsecurity.com/vmde.pdf
-	if (!g_hasAESNI && (cpuid1[2] & (1<<31)))
+	if (!g_hasAESNI && (cpuid1[2] & (1U<<31)))
 	{
 		g_hasAESNI = Detect_MS_HyperV_AES ();
 	}

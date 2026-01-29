@@ -1,0 +1,41 @@
+# Suppress syntax errors in C files that are actually C++
+syntaxError:src/Common/Dictionary.c
+syntaxError:src/Format/Tcformat.c
+syntaxError:src/Setup/Setup.c
+syntaxError:src/Setup/Wizard.c
+syntaxError:src/SetupDLL/Setup.c
+syntaxError:src/Common/Token.h
+syntaxError:src/Mount/Favorites.h
+syntaxError:src/Main/LanguageStrings.cpp
+syntaxError:src/Main/Resources.cpp
+
+# Suppress known macro issues that are hard to mock
+unknownMacro:src/Setup/SelfExtract.c
+unknownMacro:src/Volume/Cipher.h
+unknownMacro:src/Main/Forms/FavoriteVolumesDialog.cpp
+unknownMacro:src/Main/Forms/KeyfileGeneratorDialog.cpp
+unknownMacro:src/Main/Forms/KeyfilesPanel.cpp
+unknownMacro:src/Main/Forms/MainFrame.cpp
+unknownMacro:src/Main/Forms/RandomPoolEnrichmentDialog.cpp
+unknownMacro:src/Main/Forms/SingleChoiceWizardPage.h
+unknownMacro:src/Main/Forms/VolumePasswordPanel.cpp
+unknownMacro:src/Main/Forms/WaitDialog.cpp
+unknownMacro:src/Main/Forms/WizardFrame.cpp
+unknownMacro:src/Main/GraphicUserInterface.cpp
+unknownMacro:src/Main/UserInterface.cpp
+unknownMacro:src/Volume/Keyfile.cpp
+unknownMacro:src/Volume/VolumePasswordCache.cpp
+unknownMacro:src/Core/CoreBase.cpp
+unknownMacro:src/Core/HostDevice.cpp
+unknownMacro:src/Crypto/Sha2.h
+unknownMacro:src/Common/Crypto.h
+
+# Suppress other known issues
+zerodiv:src/Crypto/Argon2/src/blake2/blake2b.h
+unknownEvaluationOrder:src/Crypto/Aeskey.c
+missingReturn:src/Common/lzma/CpuArch.c
+preprocessorErrorDirective:src/Main/Hotkey.cpp
+rethrowNoCurrentException:src/Core/Unix/OpenBSD/CoreOpenBSD.cpp
+rethrowNoCurrentException:src/Main/UserInterface.h
+uninitvar:src/Common/zlib/gzlib.c
+uninitvar:src/Common/Inflate.c
