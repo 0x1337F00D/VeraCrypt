@@ -8,6 +8,8 @@ syntaxError:src/Common/Token.h
 syntaxError:src/Mount/Favorites.h
 syntaxError:src/Main/LanguageStrings.cpp
 syntaxError:src/Main/Resources.cpp
+# Inline assembly in C files
+syntaxError:src/Crypto/Whirlpool.c
 
 # Suppress known macro issues that are hard to mock
 unknownMacro:src/Setup/SelfExtract.c
@@ -29,6 +31,8 @@ unknownMacro:src/Core/CoreBase.cpp
 unknownMacro:src/Core/HostDevice.cpp
 unknownMacro:src/Crypto/Sha2.h
 unknownMacro:src/Common/Crypto.h
+# Assembly macros
+unknownMacro:src/Crypto/Sha2.c
 
 # Suppress other known issues
 zerodiv:src/Crypto/Argon2/src/blake2/blake2b.h
@@ -38,4 +42,7 @@ preprocessorErrorDirective:src/Main/Hotkey.cpp
 rethrowNoCurrentException:src/Core/Unix/OpenBSD/CoreOpenBSD.cpp
 rethrowNoCurrentException:src/Main/UserInterface.h
 uninitvar:src/Common/zlib/gzlib.c
+# Likely false positive or handled by logic
 uninitvar:src/Common/Inflate.c
+# False positive with finally_do_arg
+danglingLifetime:src/Main/GraphicUserInterface.cpp

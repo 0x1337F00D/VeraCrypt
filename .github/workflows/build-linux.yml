@@ -100,6 +100,7 @@ jobs:
           -DTC_JOIN\(a,b\)="a##b" \
           -D_T\(x\)=x \
           -DDEFINE_EVENT_TYPE\(x\)= \
+          -DAS2\(x,y\)= \
           src/
 
     - name: Download and extract wxWidgets to /tmp if build folders are missing
