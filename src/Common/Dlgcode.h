@@ -528,6 +528,7 @@ void ReportUnexpectedState (const char *techInfo);
 void OpenOnlineHelp ();
 BOOL GetPartitionInfo (const wchar_t *deviceName, PPARTITION_INFORMATION rpartInfo);
 BOOL GetDeviceInfo (const wchar_t *deviceName, DISK_PARTITION_INFO_STRUCT *info);
+BOOL GetDeviceInfoEx (const wchar_t *deviceName, DISK_PARTITION_INFO_STRUCT_EX *info);
 BOOL GetDriveGeometry (const wchar_t *deviceName, PDISK_GEOMETRY_EX diskGeometry);
 BOOL GetPhysicalDriveGeometry (int driveNumber, PDISK_GEOMETRY diskGeometry);
 BOOL IsVolumeDeviceHosted (const wchar_t *lpszDiskFile);

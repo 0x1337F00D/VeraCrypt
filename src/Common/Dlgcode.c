@@ -9603,6 +9603,16 @@ BOOL GetDeviceInfo (const wchar_t *deviceName, DISK_PARTITION_INFO_STRUCT *info)
 	return DeviceIoControl (hDriver, TC_IOCTL_GET_DRIVE_PARTITION_INFO, info, sizeof (*info), info, sizeof (*info), &dwResult, NULL);
 }
 
+BOOL GetDeviceInfoEx (const wchar_t *deviceName, DISK_PARTITION_INFO_STRUCT_EX *info)
+{
+	DWORD dwResult;
+
+	memset (info, 0, sizeof(*info));
+	StringCbCopyW ((PWSTR) &info->deviceName, sizeof(info->deviceName), deviceName);
+
+	return DeviceIoControl (hDriver, TC_IOCTL_GET_DRIVE_PARTITION_INFO_EX, info, sizeof (*info), info, sizeof (*info), &dwResult, NULL);
+}
+
 #ifndef SETUP
 BOOL GetDriveGeometry (const wchar_t *deviceName, PDISK_GEOMETRY_EX diskGeometry)
 {
