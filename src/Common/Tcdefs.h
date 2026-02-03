@@ -223,6 +223,7 @@ typedef int LONG;
 
 #endif
 
+#ifndef TC_THROW_FATAL_EXCEPTION
 #ifdef TC_WINDOWS_BOOT
 
 #	ifdef  __cplusplus
@@ -245,6 +246,7 @@ void ThrowFatalException(int line);
 #	define TC_THROW_FATAL_EXCEPTION	__fastfail(FAST_FAIL_FATAL_APP_EXIT)
 #else
 #	define TC_THROW_FATAL_EXCEPTION	*(char *) 0 = 0
+#endif
 #endif
 
 #ifdef __COVERITY__
