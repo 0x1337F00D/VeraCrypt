@@ -405,6 +405,7 @@ namespace VeraCrypt
 		unique_ptr <Pipe> inPipe (new Pipe());
 		unique_ptr <Pipe> outPipe (new Pipe());
 		Pipe errPipe;
+		Pipe execPipe;
 
 		int forkedPid = fork();
 		throw_sys_if (forkedPid == -1);
@@ -415,6 +416,9 @@ namespace VeraCrypt
 			{
 				try
 				{
+					int execFd = execPipe.GetWriteFD();
+					fcntl (execFd, F_SETFD, FD_CLOEXEC);
+
 					// Throw exception if sudo is not found in secure locations
 					std::string errorMsg;
 					string sudoPath = Process::FindSystemBinary("sudo", errorMsg);
@@ -494,7 +498,11 @@ namespace VeraCrypt
 		}
 
 #if defined(TC_LINUX )
-		Thread::Sleep (1000); // wait 1 second for the forked sudo to start
+		// Wait until the child calls exec() or exits.
+		// execPipe.GetReadFD() automatically closes the write descriptor in the parent,
+		// preventing deadlock.
+		char buf;
+		if (read (execPipe.GetReadFD(), &buf, 1) != 0) { } // Ignore result
 #endif
 		if (write (inPipe->GetWriteFD(), &adminPassword.front(), adminPassword.size())) { } // Errors ignored
 
