@@ -18,6 +18,9 @@
 #include <unistd.h>
 #include <sys/mount.h>
 #include <sys/wait.h>
+#include <sys/inotify.h>
+#include <sys/select.h>
+#include <errno.h>
 #include "CoreLinux.h"
 #include "Platform/SystemInfo.h"
 #include "Platform/TextReader.h"
@@ -138,27 +141,78 @@ namespace VeraCrypt
 		{
 			list <string> dmsetupArgs;
 			dmsetupArgs.push_back ("remove");
+			dmsetupArgs.push_back ("--retry");
 			dmsetupArgs.push_back (StringConverter::Split (devPath, "/").back());
 
-			for (int t = 0; true; t++)
-			{
-				try
-				{
-					Process::Execute ("dmsetup", dmsetupArgs);
-					break;
-				}
-				catch (...)
-				{
-					if (t > 20)
-						throw;
+			Process::Execute ("dmsetup", dmsetupArgs);
 
+			// Wait for the device to vanish
+			if (FilesystemPath (devPath).IsBlockDevice())
+			{
+				string devDir = string(devPath).substr(0, string(devPath).find_last_of("/"));
+				string devName = string(devPath).substr(string(devPath).find_last_of("/") + 1);
+
+				int fd = inotify_init();
+				if (fd != -1)
+				{
+					int wd = inotify_add_watch(fd, devDir.c_str(), IN_DELETE | IN_MOVED_FROM);
+					if (wd != -1)
+					{
+						// Check again to avoid race condition
+						if (FilesystemPath (devPath).IsBlockDevice())
+						{
+							fd_set fds;
+							FD_ZERO(&fds);
+							FD_SET(fd, &fds);
+
+							struct timeval timeout;
+							timeout.tv_sec = 2;
+							timeout.tv_usec = 0;
+
+							// Wait for event or timeout
+							// We loop because we might get events for other files
+							// On Linux, select updates the timeout with the remaining time
+							while (select(fd + 1, &fds, NULL, NULL, &timeout) > 0)
+							{
+								char buffer[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
+								const struct inotify_event *event;
+								ssize_t len;
+
+								len = read(fd, buffer, sizeof(buffer));
+								if (len == -1 && errno != EAGAIN)
+									break;
+
+								if (len <= 0)
+									break;
+
+								bool devRemoved = false;
+								for (char *ptr = buffer; ptr < buffer + len; ptr += sizeof(struct inotify_event) + event->len)
+								{
+									event = (const struct inotify_event *) ptr;
+									if (event->len > 0 && devName == event->name)
+									{
+										devRemoved = true;
+										break;
+									}
+								}
+
+								if (devRemoved || !FilesystemPath (devPath).IsBlockDevice())
+									break;
+
+								FD_ZERO(&fds);
+								FD_SET(fd, &fds);
+							}
+						}
+						inotify_rm_watch(fd, wd);
+					}
+					close(fd);
+				}
+
+				// Fallback to polling if inotify failed or timed out and device still exists
+				for (int t = 0; FilesystemPath (devPath).IsBlockDevice() && t < 20; t++)
+				{
 					Thread::Sleep (100);
 				}
-			}
-
-			for (int t = 0; FilesystemPath (devPath).IsBlockDevice() && t < 20; t++)
-			{
-				Thread::Sleep (100);
 			}
 
 			devPath = string (mountedVolume->VirtualDevice) + "_" + StringConverter::ToSingle (devCount++);
