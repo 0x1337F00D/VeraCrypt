@@ -85,6 +85,7 @@ namespace VeraCrypt
 	const uint8 INS_READ_RECORD_STAMPED = (uint8)0xB6;
 	const uint8 INS_GET_RESPONSE = (uint8)0xC0;
 	const uint8 INS_ENVELOPE = (uint8)0xC2;
+	const uint8 INS_GET_PROCESSING_OPTIONS = (uint8)0xA8;
 	const uint8 INS_GET_DATA = (uint8)0xCA;
 	const uint8 INS_WRITE_BINARY = (uint8)0xD0;
 	const uint8 INS_WRITE_RECORD = (uint8)0xD2;
@@ -102,8 +103,13 @@ namespace VeraCrypt
 	/* EMV values																						*/
 	/* ================================================================================================ */
 	const uint16 EMV_CPLC_TAG = (uint16)0x9F7F;
+	const uint16 EMV_PDOL_TAG = (uint16)0x9F38;
 	const uint16 EMV_ICC_PK_CERT_TAG = (uint16)0x9F46;
 	const uint16 EMV_FCI_ISSUER_DISCRETIONARY_DATA_TAG = (uint16)0xBF0C;
+	const uint8 EMV_AIP_TAG = (uint8)0x82;
+	const uint8 EMV_AFL_TAG = (uint8)0x94;
+	const uint8 EMV_RMT_F1_TAG = (uint8)0x80;
+	const uint8 EMV_RMT_F2_TAG = (uint8)0x77;
 	const uint8 EMV_ISS_PK_CERT_TAG = (uint8)0x90;
 	const uint8 EMV_PAN_TAG = (uint8)0x5A;
 	const uint8 EMV_FCI_TAG = (uint8)0x6F;
