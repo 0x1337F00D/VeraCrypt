@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "Platform/FileStream.h"
+#include "Platform/Mutex.h"
 #include "Driver/Fuse/FuseService.h"
 #include "Volume/VolumePasswordCache.h"
 
@@ -101,6 +102,47 @@ namespace VeraCrypt
 #endif
 
 		xargs += string (mountedVolume->VirtualDevice) + "; echo '[Done]'; read W";
+
+		static Mutex cacheMutex;
+		static string cachedTermPath;
+		static const TerminalInfo* cachedTerm = nullptr;
+
+		string termPathToUse;
+		const TerminalInfo* termToUse = nullptr;
+
+		{
+			ScopeLock lock(cacheMutex);
+			if (!cachedTermPath.empty() && cachedTerm)
+			{
+				termPathToUse = cachedTermPath;
+				termToUse = cachedTerm;
+			}
+		}
+
+		if (!termPathToUse.empty() && termToUse)
+		{
+			// Build args
+			std::list<std::string> args;
+			for (const char** arg = termToUse->args; *arg != NULL; ++arg) {
+				args.push_back(*arg);
+			}
+			args.push_back(xargs);
+
+			try {
+				Process::Execute (termPathToUse, args, 1000);
+				return;
+			}
+			catch (...) {
+				// Invalidate cache
+				ScopeLock lock(cacheMutex);
+				if (cachedTermPath == termPathToUse)
+				{
+					cachedTermPath.clear();
+					cachedTerm = nullptr;
+				}
+			}
+		}
+
 		// Try each terminal
 		for (const TerminalInfo* term = TERMINALS; term->name != NULL; ++term) {
 			errno = 0;
@@ -131,6 +173,12 @@ namespace VeraCrypt
 
 				try {
 					Process::Execute (termPath, args, 1000);
+
+					{
+						ScopeLock lock(cacheMutex);
+						cachedTermPath = termPath;
+						cachedTerm = term;
+					}
 					return;
 				}
 				catch (TimeOut&) {
