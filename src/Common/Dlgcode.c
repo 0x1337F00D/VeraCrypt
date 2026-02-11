@@ -724,6 +724,17 @@ BOOL FileExists (const wchar_t *filePathPtr)
 	if (filePath [wcslen (filePath) - 1] == L'"')
 		filePath [wcslen (filePath) - 1] = 0;
 
+	if (_wcsnicmp(filePath, L"file://", 7) == 0)
+	{
+		wchar_t dosPath[TC_MAX_PATH + 1];
+		DWORD dwLen = TC_MAX_PATH;
+
+		if (PathCreateFromUrlW(filePath, dosPath, &dwLen, 0) == S_OK)
+		{
+			return (_waccess (dosPath, 0) != -1);
+		}
+	}
+
     return (_waccess (filePath, 0) != -1);
 }
 
