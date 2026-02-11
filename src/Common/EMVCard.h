@@ -13,6 +13,8 @@
 
 namespace VeraCrypt
 {
+	struct TLVNode;
+
     typedef enum EMVCardType
 	{
 		NONE = 0,
@@ -35,6 +37,16 @@ namespace VeraCrypt
         vector<uint8> m_issuerCert;
         vector<uint8> m_cplcData;
         wstring m_lastPANDigits;
+
+		struct EmvAflEntry
+		{
+			uint8 sfi;
+			uint8 startRec;
+			uint8 endRec;
+		};
+
+		vector<EmvAflEntry> ProcessGPO(shared_ptr<TLVNode> fciNode);
+		vector<pair<uint8, uint8>> GetRecordsToRead(const vector<EmvAflEntry>& aflEntries);
 
 	public:
 
