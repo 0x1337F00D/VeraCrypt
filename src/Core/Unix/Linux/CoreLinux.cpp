@@ -117,11 +117,16 @@ namespace VeraCrypt
 				Process::Execute ("losetup", args);
 				break;
 			}
-			catch (ExecutedProcessFailed&)
+			catch (ExecutedProcessFailed& e)
 			{
+				string err = StringConverter::ToLower (e.GetErrorOutput());
+				if (err.find ("no such device") != string::npos || err.find ("not assigned") != string::npos)
+					break;
+
 				if (t > 5)
 					throw;
-				Thread::Sleep (200);
+
+				Thread::Sleep (20 * (1 << t));
 			}
 		}
 	}
