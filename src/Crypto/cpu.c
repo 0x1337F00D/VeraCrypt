@@ -116,13 +116,12 @@ int CpuId(uint32 input, uint32 output[4])
 		asm volatile
 		(
             // save ebx in case -fPIC is being used
-            // TODO: this might need an early clobber on EDI.
 #if CRYPTOPP_BOOL_X32 || CRYPTOPP_BOOL_X64
             "pushq %%rbx; cpuid; mov %%ebx, %%edi; popq %%rbx"
 #else
             "push %%ebx; cpuid; mov %%ebx, %%edi; pop %%ebx"
 #endif
-            : "=a" (output[0]), "=D" (output[1]), "=c" (output[2]), "=d" (output[3])
+            : "=a" (output[0]), "=&D" (output[1]), "=c" (output[2]), "=d" (output[3])
             : "a" (input), "c" (0)
          );
 	}
