@@ -819,7 +819,18 @@ void ExpandVolumeWizard (HWND hwndDlg, wchar_t *lpszVolume)
 			StringCbPrintfW(szTmp,sizeof(szTmp), GetString("EXPANDER_ERROR_MAX_VC_VOLUME_SIZE_EXCEEDED"),TC_MAX_VOLUME_SIZE/BYTES_PER_TB);
 			MessageBoxW (hwndDlg, szTmp,lpszTitle, MB_OK | MB_ICONEXCLAMATION );
 			if (bIsDevice)
-				break; // TODO: ask to limit volume size to TC_MAX_VOLUME_SIZE
+			{
+				StringCbPrintfW (szTmp, sizeof(szTmp), GetString("EXPANDER_QUESTION_LIMIT_MAX_VOLUME_SIZE"), TC_MAX_VOLUME_SIZE / BYTES_PER_TB);
+				if (MessageBoxW (hwndDlg, szTmp, lpszTitle, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1) == IDYES)
+				{
+					VolExpandParam.newSize = TC_MAX_VOLUME_SIZE;
+					break;
+				}
+				else
+				{
+					goto ret;
+				}
+			}
 			continue;
 		}
 
