@@ -21,15 +21,67 @@ namespace VeraCrypt
 		bool numberExpected = false;
 		bool endTagExpected = false;
 
-		//TODO replace this workaround for %s, %d, %c for printf
-		wxString text(format);
-		text.Replace (L"%s", L"{}",true);
-		text.Replace (L"%d", L"{}",true);
-		text.Replace (L"%c", L"{}",true);
-		int i=0;
-		while (text.find(L"{}") != (size_t) wxNOT_FOUND){
-			text.Replace(L"{}",L"{"+wxString::Format(wxT("%i"),i++)+L"}",false);
+		wstring sFormat(format);
+		bool usedArgs[10] = { false };
+
+		// Scan for explicit {n}
+		for (size_t i = 0; i < sFormat.length(); ++i)
+		{
+			if (sFormat[i] == L'{')
+			{
+				if (i + 1 < sFormat.length() && sFormat[i + 1] == L'{')
+				{
+					i++; // Skip escaped {
+					continue;
+				}
+				if (i + 2 < sFormat.length() && sFormat[i + 2] == L'}' && sFormat[i + 1] >= L'0' && sFormat[i + 1] <= L'9')
+				{
+					int idx = sFormat[i + 1] - L'0';
+					usedArgs[idx] = true;
+				}
+			}
 		}
+
+		wstring newFormat;
+		int nextFreeArg = 0;
+		for (size_t i = 0; i < sFormat.length(); ++i)
+		{
+			if (sFormat[i] == L'%')
+			{
+				if (i + 1 < sFormat.length())
+				{
+					wchar_t next = sFormat[i + 1];
+					if (next == L's' || next == L'd' || next == L'c')
+					{
+						while (nextFreeArg < 10 && usedArgs[nextFreeArg])
+							nextFreeArg++;
+
+						if (nextFreeArg < 10)
+						{
+							newFormat += L'{';
+							newFormat += (wchar_t)(L'0' + nextFreeArg);
+							newFormat += L'}';
+							usedArgs[nextFreeArg] = true;
+						}
+						else
+						{
+							newFormat += L"{}";
+						}
+						i++;
+						continue;
+					}
+					else if (next == L'%')
+					{
+						newFormat += L'%';
+						i++;
+						continue;
+					}
+				}
+			}
+			newFormat += sFormat[i];
+		}
+
+		wxString text(newFormat);
 
 		foreach (wchar_t c, wstring (text))
 		{
