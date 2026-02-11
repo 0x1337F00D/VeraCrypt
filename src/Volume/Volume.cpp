@@ -76,6 +76,9 @@ namespace VeraCrypt
 
 		File::FileOpenFlags flags = (preserveTimestamps ? File::PreserveTimestamps : File::FlagsNone);
 
+		if (volumePath.IsDevice())
+			flags = (File::FileOpenFlags) (flags | File::OpenDirect);
+
 		try
 		{
 			if (protection == VolumeProtection::ReadOnly)

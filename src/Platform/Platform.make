@@ -37,3 +37,6 @@ OBJS += Unix/Thread.o
 OBJS += Unix/Time.o
 
 include $(BUILD_INC)/Makefile.inc
+
+DirectIOTest: DirectIOTest.cpp $(NAME).a
+	$(CXX) $(CXXFLAGS) -o DirectIOTest DirectIOTest.cpp $(NAME).a -lpthread -ldl

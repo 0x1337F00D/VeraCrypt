@@ -43,6 +43,8 @@
 #endif
 
 #include "Platform/File.h"
+#include "Platform/Finally.h"
+#include "Platform/Memory.h"
 #include "Platform/TextReader.h"
 
 namespace VeraCrypt
@@ -283,6 +285,9 @@ namespace VeraCrypt
 			ModTime = statData.st_mtime;
 		}
 
+		if (flags & File::OpenDirect)
+			sysFlags |= O_DIRECT;
+
 		FileHandle = open (string (path).c_str(), sysFlags, S_IRUSR | S_IWUSR);
 		throw_sys_sub_if (FileHandle == -1, wstring (path));
 
@@ -337,6 +342,82 @@ namespace VeraCrypt
 		FileIsOpen = true;
 	}
 
+	uint64 File::PerformAlignedIO (const BufferPtr &buffer, uint64 position, bool write) const
+	{
+		// Optimize: Use cached or constant alignment if possible.
+		// For now, assume 4096 is safe for modern drives.
+		static const size_t deviceAlignment = 4096;
+		static const size_t memoryAlignment = 4096;
+
+		// Fast Path: Check if everything is aligned
+		if ((((uintptr_t)buffer.Get() | buffer.Size() | position) & (deviceAlignment - 1)) == 0)
+		{
+			ssize_t bytes = write ? pwrite (FileHandle, buffer, buffer.Size(), position) : pread (FileHandle, buffer, buffer.Size(), position);
+			throw_sys_sub_if (bytes == -1, wstring (Path));
+			return bytes;
+		}
+
+		// Slow Path: Unaligned Access
+		size_t alignment = deviceAlignment;
+		try
+		{
+			// Fallback to querying device if strict checking is needed,
+			// but for this optimization, we stick to 4K to avoid syscall overhead.
+			// alignment = GetDeviceSectorSize();
+		}
+		catch (...) { }
+
+		uint64 alignedStart = (position / alignment) * alignment;
+		uint64 alignedEnd = ((position + buffer.Size() + alignment - 1) / alignment) * alignment;
+		size_t alignedSize = (size_t)(alignedEnd - alignedStart);
+		size_t bufferOffset = (size_t)(position - alignedStart);
+
+		void* rawBuf = Memory::AllocateAligned (alignedSize, memoryAlignment);
+		BufferPtr alignedBuf ((uint8*)rawBuf, alignedSize);
+
+		Finally finally ([&] { Memory::FreeAligned (rawBuf); });
+
+		if (write)
+		{
+			ssize_t bytesRead = pread (FileHandle, alignedBuf, alignedSize, alignedStart);
+			throw_sys_sub_if (bytesRead == -1, wstring (Path));
+
+			if ((size_t)bytesRead < alignedSize)
+				memset (alignedBuf.Get() + bytesRead, 0, alignedSize - bytesRead);
+
+			memcpy(alignedBuf.Get() + bufferOffset, buffer.Get(), buffer.Size());
+
+			// Note: This RMW operation is not atomic with respect to other processes/threads
+			// modifying the same sector. Ensure exclusive access or proper locking at higher levels.
+			ssize_t bytesWritten = pwrite (FileHandle, alignedBuf, alignedSize, alignedStart);
+			throw_sys_sub_if (bytesWritten == -1, wstring (Path));
+
+			if ((size_t)bytesWritten < alignedSize)
+				throw SystemException (SRC_POS, wstring (Path));
+
+			return buffer.Size();
+		}
+		else
+		{
+			ssize_t bytesRead = pread (FileHandle, alignedBuf, alignedSize, alignedStart);
+			throw_sys_sub_if (bytesRead == -1, wstring (Path));
+
+			size_t copySize = buffer.Size();
+			if ((size_t)bytesRead < bufferOffset + copySize)
+			{
+				if ((size_t)bytesRead <= bufferOffset)
+					copySize = 0;
+				else
+					copySize = (size_t)bytesRead - bufferOffset;
+			}
+
+			if (copySize > 0)
+				memcpy(buffer.Get(), alignedBuf.Get() + bufferOffset, copySize);
+
+			return copySize;
+		}
+	}
+
 	uint64 File::Read (const BufferPtr &buffer) const
 	{
 		if_debug (ValidateState());
@@ -344,10 +425,22 @@ namespace VeraCrypt
 #ifdef TC_TRACE_FILE_OPERATIONS
 		TraceFileOperation (FileHandle, Path, false, buffer.Size());
 #endif
-		ssize_t bytesRead = read (FileHandle, buffer, buffer.Size());
-		throw_sys_sub_if (bytesRead == -1, wstring (Path));
+		if (mFileOpenFlags & File::OpenDirect)
+		{
+			off_t currentPos = lseek (FileHandle, 0, SEEK_CUR);
+			throw_sys_sub_if (currentPos == -1, wstring (Path));
 
-		return bytesRead;
+			uint64 bytesRead = PerformAlignedIO (buffer, currentPos, false);
+
+			lseek (FileHandle, currentPos + bytesRead, SEEK_SET);
+			return bytesRead;
+		}
+		else
+		{
+			ssize_t bytesRead = read (FileHandle, buffer, buffer.Size());
+			throw_sys_sub_if (bytesRead == -1, wstring (Path));
+			return bytesRead;
+		}
 	}
 
 	uint64 File::ReadAt (const BufferPtr &buffer, uint64 position) const
@@ -357,10 +450,16 @@ namespace VeraCrypt
 #ifdef TC_TRACE_FILE_OPERATIONS
 		TraceFileOperation (FileHandle, Path, false, buffer.Size(), position);
 #endif
-		ssize_t bytesRead = pread (FileHandle, buffer, buffer.Size(), position);
-		throw_sys_sub_if (bytesRead == -1, wstring (Path));
-
-		return bytesRead;
+		if (mFileOpenFlags & File::OpenDirect)
+		{
+			return PerformAlignedIO (buffer, position, false);
+		}
+		else
+		{
+			ssize_t bytesRead = pread (FileHandle, buffer, buffer.Size(), position);
+			throw_sys_sub_if (bytesRead == -1, wstring (Path));
+			return bytesRead;
+		}
 	}
 
 	void File::SeekAt (uint64 position) const
@@ -392,7 +491,21 @@ namespace VeraCrypt
 #ifdef TC_TRACE_FILE_OPERATIONS
 		TraceFileOperation (FileHandle, Path, true, buffer.Size());
 #endif
-		throw_sys_sub_if (write (FileHandle, buffer, buffer.Size()) != (ssize_t) buffer.Size(), wstring (Path));
+		if (mFileOpenFlags & File::OpenDirect)
+		{
+			off_t currentPos = lseek (FileHandle, 0, SEEK_CUR);
+			throw_sys_sub_if (currentPos == -1, wstring (Path));
+
+			BufferPtr bufPtr (const_cast<uint8*>(buffer.Get()), buffer.Size());
+			uint64 bytesWritten = PerformAlignedIO (bufPtr, currentPos, true);
+			throw_sys_sub_if (bytesWritten != buffer.Size(), wstring (Path));
+
+			lseek (FileHandle, currentPos + bytesWritten, SEEK_SET);
+		}
+		else
+		{
+			throw_sys_sub_if (write (FileHandle, buffer, buffer.Size()) != (ssize_t) buffer.Size(), wstring (Path));
+		}
 	}
 
 	void File::WriteAt (const ConstBufferPtr &buffer, uint64 position) const
@@ -402,6 +515,15 @@ namespace VeraCrypt
 #ifdef TC_TRACE_FILE_OPERATIONS
 		TraceFileOperation (FileHandle, Path, true, buffer.Size(), position);
 #endif
-		throw_sys_sub_if (pwrite (FileHandle, buffer, buffer.Size(), position) != (ssize_t) buffer.Size(), wstring (Path));
+		if (mFileOpenFlags & File::OpenDirect)
+		{
+			BufferPtr bufPtr (const_cast<uint8*>(buffer.Get()), buffer.Size());
+			uint64 bytesWritten = PerformAlignedIO (bufPtr, position, true);
+			throw_sys_sub_if (bytesWritten != buffer.Size(), wstring (Path));
+		}
+		else
+		{
+			throw_sys_sub_if (pwrite (FileHandle, buffer, buffer.Size(), position) != (ssize_t) buffer.Size(), wstring (Path));
+		}
 	}
 }
